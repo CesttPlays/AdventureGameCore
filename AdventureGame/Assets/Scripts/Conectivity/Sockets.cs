@@ -17,6 +17,8 @@ public class Sockets : MonoBehaviour {
 	public GameObject player;
 	public Dictionary<float,GameObject> players = new Dictionary<float,GameObject> ();
 	System.Random rnd = new System.Random();
+	Vector3 tempPosition;
+	float angle;
 	// Use this for initialization
 	void Start () {
 		nameTextGO = GameObject.Find ("nameText");
@@ -34,7 +36,7 @@ public class Sockets : MonoBehaviour {
 			if (datas.Length > 1) {
 				StartCoroutine (datas [0], datas [1]);
 			} else {
-				StartCoroutine (datas [0]);
+				Debug.Log ("Data payload missing");
 			}
 
 
@@ -44,7 +46,8 @@ public class Sockets : MonoBehaviour {
 	public void Listen(){
 		if (m_socket == null) {
 			m_socket = IO.Socket (sUrl);
-
+			tempPosition = player.transform.position;
+			angle = player.transform.rotation.z;
 			m_socket.On (Socket.EVENT_CONNECT, OnConnect);
 
 			m_socket.On (Socket.EVENT_CONNECT_ERROR, () => {
@@ -57,6 +60,9 @@ public class Sockets : MonoBehaviour {
 			m_socket.On ("New Player", (data) =>{
 				OnNewPlayer(data.ToString());
 			});
+			m_socket.On ("Players Connected", (data) =>{
+				OnCreatePlayersConnected(data.ToString());
+			});
 		}
 
 	}
@@ -66,9 +72,9 @@ public class Sockets : MonoBehaviour {
 	}
 	void OnConnect(){
 		Debug.Log ("Connected");
-		aQueue.Enqueue ("OnLogin");
+		aQueue.Enqueue ("OnLogin" + ";" + null);
 		name = nameText.text.ToString ();
-		string tempString = name +","+ rnd.NextDouble().ToString();
+		string tempString = name +","+ rnd.NextDouble().ToString() + "," + tempPosition.x + "," + tempPosition.y + "," + tempPosition.z + "," + angle;
 		m_socket.Emit("Hello",tempString);
 	}
 
@@ -81,13 +87,12 @@ public class Sockets : MonoBehaviour {
 		Debug.Log ("Hola");
 		player.SetActive (true);
 		nameTextGO.transform.parent.gameObject.SetActive (false);
+
 		yield return new WaitForEndOfFrame();
 	}
 	void OnMovement(string data){
 		Debug.Log ("Moving");
 		string[] datas = data.Split (',');
-
-
 	}
 
 	void OnNewPlayer(string data){
@@ -97,9 +102,28 @@ public class Sockets : MonoBehaviour {
 	IEnumerator CreatePlayer(string data){
 		Debug.Log ("Create Player");
 		string[] datas = data.Split (',');
-		GameObject tempGO = Instantiate (player, Vector3.zero, Quaternion.identity) as GameObject;
+
+		GameObject tempGO = Instantiate (player, new Vector3(float.Parse(datas[2]) , float.Parse(datas[3]) , float.Parse(datas[4])), new Quaternion(0f,0f,float.Parse(datas[5]),0f)) as GameObject;
 		tempGO.name = datas [0];
 		players.Add (float.Parse(datas [1]), tempGO);
+
+		yield return new WaitForEndOfFrame();
+	}
+
+	void OnCreatePlayersConnected(string data){
+		aQueue.Enqueue ("CreatePlayersConnected" + ";" + data);
+	}
+
+	IEnumerator CreatePlayersConnected(string data){
+		Debug.Log ("Create Players connected");
+		string[] datas = data.Split (',');
+		for (int i = 0; i < datas.Length; i += 6) {
+			print ("datas: " + datas [0]);
+			GameObject tempGO = Instantiate (player, new Vector3(float.Parse(datas[i +2]) , float.Parse(datas[i +3]) , float.Parse(datas[i+4])), new Quaternion(0f,0f,float.Parse(datas[i+5]),0f)) as GameObject;
+			tempGO.name = datas [i];
+			players.Add (float.Parse(datas [i +1]), tempGO);
+		}
+
 		yield return new WaitForEndOfFrame();
 	}
 
