@@ -5,8 +5,7 @@ using UnityEngine;
 
 public class Movement : MonoBehaviour {
 
-	public Sockets socketScript; 
-	string data;
+	public Sockets socketScript;
 
 	void Start(){
 		socketScript = this.gameObject.GetComponent<Sockets> ();
@@ -50,9 +49,18 @@ public class Movement : MonoBehaviour {
 
 		}
 		if (socketScript != null) {
-			data = goToMove.transform.position.ToString ().Split('(', ')')[1];
-			socketScript.Send ("Movement",data );
-			Debug.Log ("Sending Movement");
+			Person person = new Person ();
+			person.UID = socketScript.UID;
+			person.name = socketScript.name;
+			person.data = new Data () {
+				position = new Position(){
+					x = goToMove.transform.position.x,
+					y = goToMove.transform.position.y,
+					z = goToMove.transform.position.z,
+					angle = goToMove.transform.eulerAngles.z
+				}
+			};
+			socketScript.Send ("Movement",person);
 		}
 			
 		

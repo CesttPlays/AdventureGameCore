@@ -4,21 +4,26 @@ using System;
 using UnityEngine;
 using UnityEngine.UI;
 using Quobject.SocketIoClientDotNet.Client;
+using Newtonsoft.Json;
 
 public class Sockets : MonoBehaviour {
 
 	private string sUrl = "http://localhost:3000";
 
 	protected Socket m_socket = null;
-	Queue<string> aQueue = new Queue<string>();
-	string name = "";
+
+	Queue<qeueData> aQueue = new Queue<qeueData>();
+
 	GameObject nameTextGO;
 	Text nameText;
 	public GameObject player;
-	public Dictionary<float,GameObject> players = new Dictionary<float,GameObject> ();
-	System.Random rnd = new System.Random();
+	public GameObject playerPF;
+	public Dictionary<string,GameObject> players = new Dictionary<string,GameObject> ();
 	Vector3 tempPosition;
 	float angle;
+	List<Person> people = new List<Person>();
+	public string UID;
+	public string name = "";
 	// Use this for initialization
 	void Start () {
 		nameTextGO = GameObject.Find ("nameText");
@@ -29,17 +34,9 @@ public class Sockets : MonoBehaviour {
 	// Update is called once per frame
 	void Update () {
 		
-
 		if (aQueue.Count > 0) {
-			String tempAction = aQueue.Dequeue ();
-			string[] datas = tempAction.Split (';');
-			if (datas.Length > 1) {
-				StartCoroutine (datas [0], datas [1]);
-			} else {
-				Debug.Log ("Data payload missing");
-			}
-
-
+			qeueData tempData = aQueue.Dequeue ();
+			StartCoroutine (tempData.func, tempData.person);
 		}
 	}
 
@@ -48,8 +45,9 @@ public class Sockets : MonoBehaviour {
 			m_socket = IO.Socket (sUrl);
 			tempPosition = player.transform.position;
 			angle = player.transform.rotation.z;
-			m_socket.On (Socket.EVENT_CONNECT, OnConnect);
-
+			m_socket.On("Connected",(data) =>{
+				OnConnected(data.ToString());
+			});
 			m_socket.On (Socket.EVENT_CONNECT_ERROR, () => {
 				Debug.Log ("Error Connecting");
 			});	
@@ -67,66 +65,124 @@ public class Sockets : MonoBehaviour {
 
 	}
 
-	public void Send(string message, string data){
-		m_socket.Emit (message, data);
+	public void Send(string message, Person data){
+		m_socket.Emit(message, JsonConvert.SerializeObject(data));
 	}
-	void OnConnect(){
+
+	void OnConnected(string _UID){
 		Debug.Log ("Connected");
-		aQueue.Enqueue ("OnLogin" + ";" + null);
+
+		aQueue.Enqueue (new qeueData{
+			func = "OnConnectedIEnumerator",
+			person = null
+		});
 		name = nameText.text.ToString ();
-		string tempString = name +","+ rnd.NextDouble().ToString() + "," + tempPosition.x + "," + tempPosition.y + "," + tempPosition.z + "," + angle;
-		m_socket.Emit("Hello",tempString);
+		UID = _UID;
+		Debug.Log ("UID: " + UID);
+		Person tempPerson = new Person ();
+		tempPerson.name = name;
+		tempPerson.UID = _UID;
+		tempPerson.data = new Data () {
+			position = new Position(){
+				x = tempPosition.x,
+				y = tempPosition.y,
+				z = tempPosition.z,
+				angle = this.angle
+			}
+		};
+		m_socket.Emit("Hello",JsonConvert.SerializeObject(tempPerson));
 	}
+		
 
-
-	public Socket getSocket(){
-		return m_socket;
-	}
-
-	public IEnumerator OnLogin(){
-		Debug.Log ("Hola");
+	public IEnumerator OnConnectedIEnumerator(){
+		Debug.Log ("connected");
 		player.SetActive (true);
+		player.GetComponent<PlayerMovement> ().own = true;
 		nameTextGO.transform.parent.gameObject.SetActive (false);
-
 		yield return new WaitForEndOfFrame();
 	}
+
 	void OnMovement(string data){
+		
+		try{
+			Person tempPerson = JsonConvert.DeserializeObject<Person> (data);
+			aQueue.Enqueue(new qeueData{
+				func = "OnMovementIenumerator",
+				person = tempPerson
+			});
+		}catch(Exception e){
+			Debug.LogError (e);
+		}
+
+
+	}
+
+	IEnumerator OnMovementIenumerator(Person person){
 		Debug.Log ("Moving");
-		string[] datas = data.Split (',');
+		GameObject tempGO = players[person.UID];
+		tempGO.transform.position = new Vector3 (person.data.position.x, person.data.position.y, person.data.position.z);
+		tempGO.transform.rotation = Quaternion.Euler(0f, 0f, person.data.position.angle);
+		yield return new WaitForEndOfFrame();
 	}
 
 	void OnNewPlayer(string data){
 		Debug.Log ("New player");
-		aQueue.Enqueue ("CreatePlayer" + ";" + data);
-	}
-	IEnumerator CreatePlayer(string data){
-		Debug.Log ("Create Player");
-		string[] datas = data.Split (',');
 
-		GameObject tempGO = Instantiate (player, new Vector3(float.Parse(datas[2]) , float.Parse(datas[3]) , float.Parse(datas[4])), new Quaternion(0f,0f,float.Parse(datas[5]),0f)) as GameObject;
-		tempGO.name = datas [0];
-		players.Add (float.Parse(datas [1]), tempGO);
+		aQueue.Enqueue (new qeueData{
+			func = "CreatePlayer",
+			person = JsonConvert.DeserializeObject<Person>(data)
+		});
+	}
+	IEnumerator CreatePlayer(Person person){
+		GameObject tempGO = Instantiate (playerPF, new Vector3(person.data.position.x , person.data.position.y , person.data.position.z), new Quaternion(0f,0f,person.data.position.angle,0f)) as GameObject;
+		tempGO.name = person.name;
+		players[person.UID] = tempGO;
 
 		yield return new WaitForEndOfFrame();
 	}
 
 	void OnCreatePlayersConnected(string data){
-		aQueue.Enqueue ("CreatePlayersConnected" + ";" + data);
-	}
-
-	IEnumerator CreatePlayersConnected(string data){
-		Debug.Log ("Create Players connected");
-		string[] datas = data.Split (',');
-		for (int i = 0; i < datas.Length; i += 6) {
-			print ("datas: " + datas [0]);
-			GameObject tempGO = Instantiate (player, new Vector3(float.Parse(datas[i +2]) , float.Parse(datas[i +3]) , float.Parse(datas[i+4])), new Quaternion(0f,0f,float.Parse(datas[i+5]),0f)) as GameObject;
-			tempGO.name = datas [i];
-			players.Add (float.Parse(datas [i +1]), tempGO);
+		try{
+			List<Person> tempPersons = JsonConvert.DeserializeObject<List<Person>> (data);
+			for (int i = 0; i < tempPersons.Count; i++) {
+				if(tempPersons[i] != null){
+					print(tempPersons[i].name);
+					aQueue.Enqueue (new qeueData{
+						func = "CreatePlayer",
+						person = tempPersons[i]
+					});
+				}
+			}
+		}catch(Exception e){
+			Debug.LogError(e);
 		}
 
-		yield return new WaitForEndOfFrame();
 	}
+		
+}
 
 
 
+public struct qeueData{
+	public string func;
+	public Person person;
+}
+
+public class Person{
+	public string name { get; set;}
+	public string UID { get; set;}
+	public Data data { get; set;}
+	
+}
+
+public class Data{
+	public Position position { get; set;}
+}
+
+
+public class Position{
+	public float x { get; set;}
+	public float y { get; set;}
+	public float z { get; set;}
+	public float angle { get; set;}
 }
